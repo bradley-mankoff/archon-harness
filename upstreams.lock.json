@@ -1,0 +1,52 @@
+{
+  "generatedAt": "2026-07-27",
+  "upstreams": {
+    "archon": {
+      "repository": "https://github.com/coleam00/Archon",
+      "version": "v0.6.0",
+      "commit": "e67940a3f5779dc49d2c677c6794fcb1e2f6b20f",
+      "license": "MIT",
+      "integration": "binary"
+    },
+    "tura": {
+      "repository": "https://github.com/Tura-AI/tura",
+      "commit": "09b7913a693e82c6ebd4ffea0081ab063dd03316",
+      "license": "AGPL-3.0",
+      "integration": "clean-room batching contract"
+    },
+    "omp": {
+      "repository": "https://github.com/can1357/oh-my-pi",
+      "version": "17.1.6",
+      "commit": "ed4c78bc0faafcc79f61cfd0baca7a8413ba74bf",
+      "license": "MIT",
+      "integration": "npm package and CLI"
+    },
+    "caveman": {
+      "repository": "https://github.com/JuliusBrussee/caveman",
+      "commit": "0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0",
+      "license": "MIT",
+      "integration": "pinned external skill checkout"
+    },
+    "rtk": {
+      "repository": "https://github.com/rtk-ai/rtk",
+      "version": "0.42.3",
+      "commit": "3fc407027589acef9579df5b2ad10b0f3042e030",
+      "license": "Apache-2.0",
+      "integration": "binary"
+    },
+    "gitnexus": {
+      "repository": "https://github.com/abhigyanpatwari/GitNexus",
+      "version": "1.6.9",
+      "commit": "e307286d5265174fabc0164b5809a6f16502ca1f",
+      "license": "PolyForm-Noncommercial-1.0.0",
+      "integration": "npm package and external CLI"
+    },
+    "agentmemory": {
+      "repository": "https://github.com/rohitg00/agentmemory",
+      "version": "0.9.28",
+      "commit": "d8b5267c367a5da07ad3619363520b7f1a506c6b",
+      "license": "Apache-2.0",
+      "integration": "npm package and REST"
+    }
+  }
+}

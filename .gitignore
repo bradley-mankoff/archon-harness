@@ -1,0 +1,7 @@
+node_modules/
+.archon-harness/
+.gitnexus/
+coverage/
+dist/
+*.log
+.DS_Store
