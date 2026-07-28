@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, open, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
@@ -10,7 +10,7 @@ import { recordAudit, writeEvidence } from "./audit.ts";
 import { smokeBatch } from "./batch.ts";
 import type { CheckResult } from "./contracts.ts";
 import { modelSelectionSchema, type ModelSelection } from "./model.ts";
-import { archonBinary, auditPath, harnessRoot, managedArchonHome } from "./paths.ts";
+import { archonBinary, auditPath, harnessRoot, managedArchonHome, runLogPath } from "./paths.ts";
 import { ensureAgentMemory } from "./services/agentmemory.ts";
 
 export interface ArchonInvocation {
@@ -20,6 +20,19 @@ export interface ArchonInvocation {
   env: Record<string, string>;
   auditFile: string;
   finalResponseFile: string;
+  archonStdoutLog: string;
+  archonStderrLog: string;
+  ompStderrLog: string;
+}
+
+export interface ArchonExecutionResult {
+  exitCode: number;
+  response?: string;
+  logs: {
+    stdout: string;
+    stderr: string;
+    omp: string;
+  };
 }
 
 const managedConfigSchema = z.object({
@@ -27,6 +40,22 @@ const managedConfigSchema = z.object({
 });
 
 const managedRuntimeSchema = z.object({ omp: modelSelectionSchema });
+
+async function readManagedModel(): Promise<ModelSelection> {
+  const archonHome = managedArchonHome();
+  try {
+    const config = managedRuntimeSchema.parse(
+      parse(await readFile(join(archonHome, "harness.yaml"), "utf8")),
+    );
+    return config.omp;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const legacy = managedConfigSchema.parse(
+      parse(await readFile(join(archonHome, "config.yaml"), "utf8")),
+    );
+    return { model: legacy.assistants.pi.model };
+  }
+}
 
 export function buildArchonInvocation(
   message: string,
@@ -37,6 +66,9 @@ export function buildArchonInvocation(
   const root = harnessRoot();
   const auditFile = auditPath(runId);
   const finalResponseFile = join(dirname(auditFile), "responses", `${runId}.txt`);
+  const archonStdoutLog = runLogPath(runId, "archon-stdout");
+  const archonStderrLog = runLogPath(runId, "archon-stderr");
+  const ompStderrLog = runLogPath(runId, "omp-stderr");
   return {
     executable: archonBinary(),
     args: ["workflow", "run", "archon-efficient", message, "--cwd", resolve(cwd), "--no-worktree"],
@@ -45,10 +77,11 @@ export function buildArchonInvocation(
       ARCHON_HOME: managedArchonHome(),
       HARNESS_ROOT: root,
       HARNESS_BUN: process.execPath,
-      HARNESS_OMP: join(root, "node_modules", ".bin", "omp"),
+      HARNESS_OMP: process.env.HARNESS_OMP || join(root, "node_modules", ".bin", "omp"),
       HARNESS_EXTENSION: join(root, "src", "extension", "index.ts"),
       HARNESS_AUDIT_PATH: auditFile,
       HARNESS_FINAL_RESPONSE: finalResponseFile,
+      HARNESS_OMP_LOG: ompStderrLog,
       AGENTMEMORY_URL: process.env.AGENTMEMORY_URL || "http://127.0.0.1:3111",
       CI: "1",
       ...(omp ? { HARNESS_OMP_MODEL: omp.model } : {}),
@@ -56,6 +89,9 @@ export function buildArchonInvocation(
     },
     auditFile,
     finalResponseFile,
+    archonStdoutLog,
+    archonStderrLog,
+    ompStderrLog,
   };
 }
 
@@ -65,36 +101,71 @@ export async function printFinalResponse(
 ): Promise<void> {
   const response = (await readFile(path, "utf8")).trim();
   if (!response) throw new Error("OMP completed without a final response");
-  write(`\n${response}\n`);
+  write(`${response}\n`);
+}
+
+export async function executeArchonInvocation(
+  invocation: ArchonInvocation,
+): Promise<ArchonExecutionResult> {
+  await Promise.all([
+    mkdir(dirname(invocation.finalResponseFile), { recursive: true }),
+    mkdir(dirname(invocation.archonStdoutLog), { recursive: true }),
+    mkdir(dirname(invocation.archonStderrLog), { recursive: true }),
+    mkdir(dirname(invocation.ompStderrLog), { recursive: true }),
+  ]);
+  const [stdoutLog, stderrLog] = await Promise.all([
+    open(invocation.archonStdoutLog, "w"),
+    open(invocation.archonStderrLog, "w"),
+  ]);
+  let exitCode: number;
+  try {
+    const child = Bun.spawn([invocation.executable, ...invocation.args], {
+      cwd: invocation.cwd,
+      env: { ...process.env, ...invocation.env },
+      stdin: "inherit",
+      stdout: stdoutLog.fd,
+      stderr: stderrLog.fd,
+    });
+    exitCode = await child.exited;
+  } finally {
+    await Promise.all([stdoutLog.close(), stderrLog.close()]);
+  }
+  return {
+    exitCode,
+    ...(exitCode === 0
+      ? { response: (await readFile(invocation.finalResponseFile, "utf8")).trim() }
+      : {}),
+    logs: {
+      stdout: invocation.archonStdoutLog,
+      stderr: invocation.archonStderrLog,
+      omp: invocation.ompStderrLog,
+    },
+  };
 }
 
 export async function runArchon(message: string, cwd: string): Promise<number> {
-  const archonHome = managedArchonHome();
-  let omp: ModelSelection | undefined;
-  try {
-    const config = managedRuntimeSchema.parse(
-      parse(await readFile(join(archonHome, "harness.yaml"), "utf8")),
+  const result = await runArchonCaptured(message, cwd);
+  if (result.exitCode === 0) {
+    process.stdout.write(`${result.response}\n`);
+  } else {
+    process.stderr.write(
+      `Archon workflow failed (exit ${result.exitCode}). Logs: ${result.logs.stderr}, ${result.logs.omp}\n`,
     );
-    omp = config.omp;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    const legacy = managedConfigSchema.parse(
-      parse(await readFile(join(archonHome, "config.yaml"), "utf8")),
-    );
-    omp = { model: legacy.assistants.pi.model };
   }
-  const invocation = buildArchonInvocation(message, cwd, crypto.randomUUID(), omp);
-  await mkdir(dirname(invocation.finalResponseFile), { recursive: true });
-  const child = Bun.spawn([invocation.executable, ...invocation.args], {
-    cwd: invocation.cwd,
-    env: { ...process.env, ...invocation.env },
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const exitCode = await child.exited;
-  if (exitCode === 0) await printFinalResponse(invocation.finalResponseFile);
-  return exitCode;
+  return result.exitCode;
+}
+
+export async function runArchonCaptured(
+  message: string,
+  cwd: string,
+): Promise<ArchonExecutionResult> {
+  const invocation = buildArchonInvocation(
+    message,
+    cwd,
+    crypto.randomUUID(),
+    await readManagedModel(),
+  );
+  return executeArchonInvocation(invocation);
 }
 
 function requireCheck(check: CheckResult): void {

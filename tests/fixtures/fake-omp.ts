@@ -46,4 +46,5 @@ if (!parsed.systemPrompt.some((item) => item.includes("Always-on output policy")
 }
 await emit("session_shutdown", { type: "session_shutdown" });
 
+process.stderr.write("Working...\n");
 process.stdout.write("no-model OMP lifecycle completed\n");

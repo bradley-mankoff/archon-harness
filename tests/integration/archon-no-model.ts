@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
@@ -13,14 +13,21 @@ const evidenceSchema = z.object({
   auditEntries: z.number().int().positive(),
 });
 
+async function readLogTail(path: string): Promise<string> {
+  try {
+    const content = await readFile(path, "utf8");
+    return content.slice(-4_000);
+  } catch (error) {
+    return `<unavailable: ${String(error)}>`;
+  }
+}
+
 async function run(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "archon-harness-e2e-"));
   try {
     const archonHome = join(root, "archon");
     const agentDir = join(root, "omp-agent");
     const workflows = join(archonHome, "workflows");
-    const auditFile = join(root, "audit.jsonl");
-    const finalResponse = join(root, "final-response.txt");
     await Promise.all([
       mkdir(workflows, { recursive: true }),
       mkdir(agentDir, { recursive: true }),
@@ -43,20 +50,18 @@ async function run(): Promise<void> {
 
     const child = Bun.spawn(
       [
-        archonBinary(),
-        "workflow",
-        "run",
-        "archon-efficient",
-        "no-model integration probe",
+        process.execPath,
+        join(harnessRoot(), "src", "cli.ts"),
+        "chat",
         "--cwd",
         harnessRoot(),
-        "--no-worktree",
+        "no-model integration probe",
       ],
       {
         cwd: harnessRoot(),
         env: {
           ARCHON_HOME: archonHome,
-          ARCHON_HARNESS_DATA: join(homedir(), ".local", "share", "archon-harness"),
+          ARCHON_HARNESS_DATA: root,
           ARCHON_TELEMETRY_DISABLED: "1",
           DO_NOT_TRACK: "1",
           HOME: homedir(),
@@ -68,8 +73,6 @@ async function run(): Promise<void> {
           HARNESS_BUN: process.execPath,
           HARNESS_OMP: join(harnessRoot(), "tests", "fixtures", "fake-omp.ts"),
           HARNESS_EXTENSION: join(harnessRoot(), "src", "extension", "index.ts"),
-          HARNESS_AUDIT_PATH: auditFile,
-          HARNESS_FINAL_RESPONSE: finalResponse,
           AGENTMEMORY_URL: "http://127.0.0.1:3111",
           CI: "1",
         },
@@ -84,22 +87,71 @@ async function run(): Promise<void> {
       new Response(child.stderr).text(),
       child.exited,
     ]).finally(() => clearTimeout(timeout));
-    if (exitCode !== 0) throw new Error(`Archon E2E failed (${exitCode}):\n${stderr}\n${stdout}`);
-    if (!stderr.includes("[postflight] Completed"))
-      throw new Error("Archon did not complete postflight");
-    if (!stdout.includes("title.generate_failed") || !stdout.includes("title.fallback_set")) {
+    if (exitCode !== 0) {
+      const logDir = join(root, "logs");
+      const logFiles = await readdir(logDir).catch(() => []);
+      const stdoutPath = join(
+        logDir,
+        logFiles.find((path) => path.endsWith(".archon-stdout.log")) ?? "missing",
+      );
+      const stderrPath = join(
+        logDir,
+        logFiles.find((path) => path.endsWith(".archon-stderr.log")) ?? "missing",
+      );
+      const ompPath = join(
+        logDir,
+        logFiles.find((path) => path.endsWith(".omp-stderr.log")) ?? "missing",
+      );
+      const [archonStdout, archonStderr, ompStderr] = await Promise.all([
+        readLogTail(stdoutPath),
+        readLogTail(stderrPath),
+        readLogTail(ompPath),
+      ]);
       throw new Error(
-        `Archon's title path did not fail closed and apply its fallback:\n${stdout.slice(0, 4_000)}`,
+        `Harness E2E failed (${exitCode}):\nCLI stderr:\n${stderr}\nCLI stdout:\n${stdout}\nArchon stdout:\n${archonStdout}\nArchon stderr:\n${archonStderr}\nOMP stderr:\n${ompStderr}`,
       );
     }
-    if (stdout.includes("title.generate_completed")) {
+    if (stdout !== "no-model OMP lifecycle completed\n" || stderr !== "") {
+      throw new Error(
+        `Harness did not keep the terminal response-only:\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`,
+      );
+    }
+    const logDir = join(root, "logs");
+    const logFiles = await readdir(logDir);
+    const archonStdoutPath = join(
+      logDir,
+      logFiles.find((path) => path.endsWith(".archon-stdout.log")) ?? "missing",
+    );
+    const archonStderrPath = join(
+      logDir,
+      logFiles.find((path) => path.endsWith(".archon-stderr.log")) ?? "missing",
+    );
+    const ompLogPath = join(
+      logDir,
+      logFiles.find((path) => path.endsWith(".omp-stderr.log")) ?? "missing",
+    );
+    const [archonStdout, archonStderr, ompStderr] = await Promise.all([
+      readFile(archonStdoutPath, "utf8"),
+      readFile(archonStderrPath, "utf8"),
+      readFile(ompLogPath, "utf8"),
+    ]);
+    if (!archonStderr.includes("[postflight] Completed"))
+      throw new Error("Archon did not complete postflight");
+    if (
+      !archonStdout.includes("title.generate_failed") ||
+      !archonStdout.includes("title.fallback_set")
+    ) {
+      throw new Error(
+        `Archon's title path did not fail closed and apply its fallback:\n${archonStdout.slice(0, 4_000)}`,
+      );
+    }
+    if (archonStdout.includes("title.generate_completed")) {
       throw new Error("Archon made an unexpected successful title-model call");
     }
-    if ((await readFile(finalResponse, "utf8")).trim() !== "no-model OMP lifecycle completed") {
-      throw new Error("Archon workflow did not capture OMP's final response");
-    }
+    if (ompStderr !== "Working...\n")
+      throw new Error("OMP progress was not retained in its run log");
 
-    const evidenceMatch = stdout.match(/"evidence":\s*"([^"]+\/evidence\.json)"/);
+    const evidenceMatch = archonStdout.match(/"evidence":\s*"([^"]+\/evidence\.json)"/);
     const evidencePath = evidenceMatch?.[1];
     if (!evidencePath) throw new Error("Archon did not report an evidence artifact");
     const evidence = evidenceSchema.parse(JSON.parse(await readFile(evidencePath, "utf8")));

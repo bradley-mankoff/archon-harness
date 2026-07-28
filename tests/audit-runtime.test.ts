@@ -8,7 +8,11 @@ import {
   requiredActivationEvents,
   writeEvidence,
 } from "../src/audit.ts";
-import { buildArchonInvocation, printFinalResponse } from "../src/runtime.ts";
+import {
+  buildArchonInvocation,
+  executeArchonInvocation,
+  printFinalResponse,
+} from "../src/runtime.ts";
 
 const temporaryPaths: string[] = [];
 
@@ -92,6 +96,9 @@ describe("Archon invocation", () => {
     expect(invocation.env.HARNESS_OMP_THINKING).toBe("minimal");
     expect(invocation.env.HARNESS_AUDIT_PATH).toEndWith("run-1.jsonl");
     expect(invocation.env.HARNESS_FINAL_RESPONSE).toBe(invocation.finalResponseFile);
+    expect(invocation.env.HARNESS_OMP_LOG).toBe(invocation.ompStderrLog);
+    expect(invocation.archonStdoutLog).toEndWith("run-1.archon-stdout.log");
+    expect(invocation.archonStderrLog).toEndWith("run-1.archon-stderr.log");
   });
 
   test("surfaces the captured OMP final response", async () => {
@@ -103,6 +110,57 @@ describe("Archon invocation", () => {
     await printFinalResponse(response, (value) => {
       output += value;
     });
-    expect(output).toBe("\nRepository: news\nBranch: main\n");
+    expect(output).toBe("Repository: news\nBranch: main\n");
+  });
+
+  test("captures orchestration noise and returns only the final response", async () => {
+    const root = await mkdtemp(join(tmpdir(), "archon-harness-captured-run-"));
+    temporaryPaths.push(root);
+    const invocation = {
+      executable: "/bin/sh",
+      args: [
+        "-c",
+        'printf "archon info\\n"; printf "archon warning\\n" >&2; printf "Working...\\n" > "$HARNESS_OMP_LOG"; printf "final answer\\n" > "$HARNESS_FINAL_RESPONSE"',
+      ],
+      cwd: root,
+      env: {
+        HARNESS_FINAL_RESPONSE: join(root, "response.txt"),
+        HARNESS_OMP_LOG: join(root, "omp.log"),
+      },
+      auditFile: join(root, "audit.jsonl"),
+      finalResponseFile: join(root, "response.txt"),
+      archonStdoutLog: join(root, "archon.stdout.log"),
+      archonStderrLog: join(root, "archon.stderr.log"),
+      ompStderrLog: join(root, "omp.log"),
+    };
+
+    const result = await executeArchonInvocation(invocation);
+
+    expect(result).toMatchObject({ exitCode: 0, response: "final answer" });
+    expect(await readFile(invocation.archonStdoutLog, "utf8")).toBe("archon info\n");
+    expect(await readFile(invocation.archonStderrLog, "utf8")).toBe("archon warning\n");
+    expect(await readFile(invocation.ompStderrLog, "utf8")).toBe("Working...\n");
+  });
+
+  test("retains failure diagnostics without fabricating a response", async () => {
+    const root = await mkdtemp(join(tmpdir(), "archon-harness-failed-run-"));
+    temporaryPaths.push(root);
+    const invocation = {
+      executable: "/bin/sh",
+      args: ["-c", 'printf "failed detail\\n" >&2; exit 7'],
+      cwd: root,
+      env: {},
+      auditFile: join(root, "audit.jsonl"),
+      finalResponseFile: join(root, "response.txt"),
+      archonStdoutLog: join(root, "archon.stdout.log"),
+      archonStderrLog: join(root, "archon.stderr.log"),
+      ompStderrLog: join(root, "omp.log"),
+    };
+
+    const result = await executeArchonInvocation(invocation);
+
+    expect(result).toMatchObject({ exitCode: 7, logs: { stderr: invocation.archonStderrLog } });
+    expect(result.response).toBeUndefined();
+    expect(await readFile(invocation.archonStderrLog, "utf8")).toBe("failed detail\n");
   });
 });

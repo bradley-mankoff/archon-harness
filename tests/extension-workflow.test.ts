@@ -57,5 +57,7 @@ describe("Archon workflow", () => {
     expect(agent?.bash).toContain('--extension "$HARNESS_EXTENSION"');
     expect(agent?.bash).toContain('--thinking "$HARNESS_OMP_THINKING"');
     expect(agent?.bash).toContain('> "$HARNESS_FINAL_RESPONSE"');
+    expect(agent?.bash).toContain('2> "$HARNESS_OMP_LOG"');
+    expect(agent?.bash).toContain("--no-title");
   });
 });

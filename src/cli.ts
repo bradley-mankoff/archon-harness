@@ -7,6 +7,8 @@ import { gitNexusAdapter } from "./adapters/gitnexus.ts";
 import { rtkAdapter } from "./adapters/rtk.ts";
 import { smokeBatch } from "./batch.ts";
 import { ensureAgentMemory } from "./services/agentmemory.ts";
+import { runBenchmark } from "./benchmark.ts";
+import { publicSlackConfig, readSlackConfig, runSlackBridge } from "./slack.ts";
 
 function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -67,18 +69,29 @@ export function createProgram(): Command {
 
   program
     .command("benchmark")
-    .description("Measure RTK output reduction while preserving command status")
+    .description("Run the offline component effectiveness and token audit")
     .option("--cwd <path>", "target repository", process.cwd())
     .action(async (options: { cwd: string }) => {
-      const input = "git status --short";
-      const rewritten = await rtkAdapter.rewrite(input, options.cwd);
-      printJson({
-        input,
-        optimized: rewritten.command,
-        rewritten: rewritten.rewritten,
-        fidelityBoundary: "same command intent; runtime exit code is preserved by command_batch",
-      });
-      if (!rewritten.rewritten) process.exitCode = 1;
+      await ensureAgentMemory();
+      const report = await runBenchmark(options.cwd);
+      printJson(report);
+      if (!report.ok) process.exitCode = 1;
+    });
+
+  const slack = program
+    .command("slack")
+    .description("Operate the allowlisted Slack Socket Mode bridge");
+  slack
+    .command("check")
+    .description("Validate Slack environment and repository access without connecting")
+    .action(async () => {
+      printJson({ ok: true, config: publicSlackConfig(await readSlackConfig()) });
+    });
+  slack
+    .command("start")
+    .description("Connect the Slack Socket Mode bridge")
+    .action(async () => {
+      await runSlackBridge(await readSlackConfig());
     });
 
   const internal = program

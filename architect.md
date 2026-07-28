@@ -18,6 +18,11 @@ Build one Archon-owned coding harness. Save context and model turns without weak
 10. Updates pass contract, differential, integration, and token-effect checks before lock changes merge.
 11. Archon stores a base provider/model; OMP thinking is validated and passed independently.
 12. A successful CLI run surfaces OMP's nonempty final response after Archon completes.
+13. User-facing stdout contains only the final response; orchestration and progress streams remain in per-run logs.
+14. Token-effect claims are component-specific. Uncontrolled or paid-model effects are labeled as requiring A/B evidence.
+15. Slack ingress is optional, Socket Mode only, and restricted by exact user, channel, and repository allowlists.
+16. The harness-managed memory daemon receives only required runtime variables and runs without an LLM provider.
+17. Every harness-managed memory listener is loopback-only, and lifecycle ownership covers both the wrapper and iii engine PIDs.
 
 ## Runtime
 
@@ -33,7 +38,7 @@ user
        -> code_scout: bounded GitNexus query/context/impact
        -> memory tools: bounded agentmemory calls
   -> memory observation/session close
-  -> captured OMP final response printed by archon-harness
+  -> captured OMP final response printed by archon-harness; diagnostics retained in run logs
 ```
 
 ## Modules
@@ -64,12 +69,12 @@ user
 - `~/.local/share/archon-harness/`: Archon state, audits, service logs, and agentmemory persistence.
 - `~/.omp/agent/config.yml`: existing OMP config, read-only; the workflow passes the extension path explicitly.
 - `.gitnexus/`: per-codebase generated index, ignored by Git.
-- agentmemory: upstream-owned persistence.
+- agentmemory: upstream-owned persistence, local embeddings, synthetic compression, and no inherited provider credentials.
 - Archon: upstream-owned workflow and session persistence.
 
 ## Compatibility Verification
 
-The Bun suite checks immutable upstream metadata, adapters, command batching, hashline edits, extension loading, workflow structure, installation, redaction, and fail-closed activation evidence. `tests/integration` runs the installed Archon DAG through the real harness extension with a no-model fixture. `doctor` verifies installed executable boundaries, `smoke` exercises every local optimization, and `benchmark` verifies that RTK rewrites the representative command while documenting its fidelity boundary.
+The Bun suite checks immutable upstream metadata, adapters, command batching, hashline edits, extension loading, workflow structure, installation, redaction, Slack allowlists, quiet output, and fail-closed activation evidence. `tests/integration` runs the public chat command and installed Archon DAG through the real harness extension with a no-model fixture. `doctor` verifies installed executable boundaries, `smoke` exercises every local optimization, and `benchmark` measures offline component effects while refusing unsupported aggregate claims.
 
 An upstream update is accepted only when:
 
@@ -84,4 +89,4 @@ An upstream update is accepted only when:
 
 ## Security and Licensing
 
-No tokens enter logs, memory, benchmark fixtures, or repository config. Slack stays optional until workspace authorization exists. GitNexus is noncommercial unless separately licensed; Bauhealth use remains blocked and documented until that license boundary is resolved.
+No credentials enter logs, memory, benchmark fixtures, or repository config. Slack tokens remain environment-only; the bridge does not alter workspace permissions or app configuration. GitNexus is noncommercial unless separately licensed; Bauhealth work-product use remains blocked until that license boundary is resolved.

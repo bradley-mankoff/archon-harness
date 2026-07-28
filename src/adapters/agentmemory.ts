@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { countTokens } from "gpt-tokenizer";
 import type { CheckResult, HarnessAdapter } from "../contracts.ts";
 import { redactRecord, redactText, redactUnknown } from "../redaction.ts";
 
@@ -117,15 +118,17 @@ export class AgentMemoryAdapter implements HarnessAdapter {
 
   async smoke(cwd: string): Promise<CheckResult> {
     const sessionId = `archon-harness-smoke-${crypto.randomUUID()}`;
+    const marker = `basalt-orchid-${crypto.randomUUID()}`;
+    let started = false;
     try {
       await this.start(sessionId, cwd);
+      started = true;
       await this.observe(sessionId, cwd, "post_tool_use", {
         tool_name: "archon-harness-smoke",
-        tool_input: { marker: "basalt-orchid-731" },
-        tool_output: "Archon harness memory smoke marker: basalt-orchid-731.",
+        tool_input: { marker },
+        tool_output: `Archon harness memory smoke marker: ${marker}.`,
       });
-      const recalled = await this.smartSearch("basalt orchid 731", 5, cwd, sessionId);
-      await this.end(sessionId);
+      const recalled = await this.smartSearch(marker, 5, cwd, sessionId);
       const output = JSON.stringify(recalled);
       return {
         name: this.name,
@@ -133,10 +136,16 @@ export class AgentMemoryAdapter implements HarnessAdapter {
           recalled.results.some((result) => result.sessionId === sessionId) &&
           Buffer.byteLength(output) <= 8_000,
         detail: `Save/recall round trip returned ${Buffer.byteLength(output)} bounded bytes.`,
-        evidence: { recallBytes: Buffer.byteLength(output), limitBytes: 8_000 },
+        evidence: {
+          recallBytes: Buffer.byteLength(output),
+          recallTokens: countTokens(output),
+          limitBytes: 8_000,
+        },
       };
     } catch (error) {
       return { name: this.name, ok: false, detail: String(error) };
+    } finally {
+      if (started) await this.end(sessionId);
     }
   }
 }

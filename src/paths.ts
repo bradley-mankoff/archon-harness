@@ -32,3 +32,10 @@ export function archonBinary(): string {
 export function auditPath(runId: string): string {
   return join(dataRoot(), "audits", `${runId}.jsonl`);
 }
+
+export function runLogPath(
+  runId: string,
+  stream: "archon-stdout" | "archon-stderr" | "omp-stderr",
+): string {
+  return join(dataRoot(), "logs", `${runId}.${stream}.log`);
+}

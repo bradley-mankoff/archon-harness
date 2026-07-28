@@ -1,5 +1,5 @@
 name: archon-efficient
-description: "Always-on efficient coding harness: deterministic DAG, OMP hashline, batching, compression, structural scouting, and memory."
+description: "Always-on efficient coding harness: deterministic DAG, OMP hashline, batching, bounded structural scouting, and memory."
 provider: pi
 worktree:
   enabled: false
@@ -15,14 +15,14 @@ nodes:
 
   - id: agent
     bash: |
-      args=(-p --cwd "$PWD" --max-time 15m --extension "$HARNESS_EXTENSION")
+      args=(-p --no-title --cwd "$PWD" --max-time 15m --extension "$HARNESS_EXTENSION")
       if [ -n "${HARNESS_OMP_MODEL:-}" ]; then
         args+=(--model "$HARNESS_OMP_MODEL")
       fi
       if [ -n "${HARNESS_OMP_THINKING:-}" ]; then
         args+=(--thinking "$HARNESS_OMP_THINKING")
       fi
-      "$HARNESS_OMP" "${args[@]}" -- "$ARGUMENTS" > "$HARNESS_FINAL_RESPONSE"
+      "$HARNESS_OMP" "${args[@]}" -- "$ARGUMENTS" > "$HARNESS_FINAL_RESPONSE" 2> "$HARNESS_OMP_LOG"
     depends_on: [preflight]
     timeout: 900000
 
