@@ -41,9 +41,10 @@ flowchart LR
   A --> U
 ```
 
-The browser surface is Archon's own UI, not a second agent runtime. The harness starts it on
-`127.0.0.1`; projects and workflows remain Archon-owned, while every `archon-efficient` agent node
-still launches the pinned OMP binary with the harness extension and policy.
+The recommended browser surface is Archon's own UI, not a second agent runtime. A future harness
+launcher must start it on `127.0.0.1`; projects and workflows remain Archon-owned, while every
+`archon-efficient` agent node still launches the pinned OMP binary with the harness extension and
+policy.
 
 ## Modules
 
