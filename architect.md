@@ -16,6 +16,8 @@ Build one Archon-owned coding harness. Save context and model turns without weak
 8. Upstream repositories remain untouched. Adapters depend on pinned releases or commits through small process/API contracts.
 9. Tura AGPL code and GitNexus PolyForm code are not copied. Tura-style batching is an independent implementation; GitNexus runs as an external licensed tool.
 10. Updates pass contract, differential, integration, and token-effect checks before lock changes merge.
+11. Archon stores a base provider/model; OMP thinking is validated and passed independently.
+12. A successful CLI run surfaces OMP's nonempty final response after Archon completes.
 
 ## Runtime
 
@@ -31,7 +33,7 @@ user
        -> code_scout: bounded GitNexus query/context/impact
        -> memory tools: bounded agentmemory calls
   -> memory observation/session close
-  -> concise final output
+  -> captured OMP final response printed by archon-harness
 ```
 
 ## Modules

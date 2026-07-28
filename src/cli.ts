@@ -23,9 +23,10 @@ export function createProgram(): Command {
     .description(
       "Install the pinned Archon binary and register the harness workflow and OMP extension",
     )
-    .option("--model <provider/model>", "Pi model override")
+    .option("--model <provider/model[:thinking]>", "OMP model override")
+    .option("--thinking <level>", "OMP thinking: off|minimal|low|medium|high|xhigh|max|auto")
     .option("--force-download", "redownload and verify the Archon binary")
-    .action(async (options: { model?: string; forceDownload?: boolean }) => {
+    .action(async (options: { model?: string; thinking?: string; forceDownload?: boolean }) => {
       printJson(await installHarness(options));
     });
 

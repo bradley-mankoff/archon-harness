@@ -19,7 +19,10 @@ nodes:
       if [ -n "${HARNESS_OMP_MODEL:-}" ]; then
         args+=(--model "$HARNESS_OMP_MODEL")
       fi
-      "$HARNESS_OMP" "${args[@]}" -- "$ARGUMENTS"
+      if [ -n "${HARNESS_OMP_THINKING:-}" ]; then
+        args+=(--thinking "$HARNESS_OMP_THINKING")
+      fi
+      "$HARNESS_OMP" "${args[@]}" -- "$ARGUMENTS" > "$HARNESS_FINAL_RESPONSE"
     depends_on: [preflight]
     timeout: 900000
 

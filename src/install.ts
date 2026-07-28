@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { parse, stringify } from "yaml";
 import { z } from "zod";
 import lock from "../upstreams.lock.json";
+import { applyThinkingOverride, parseModelSelection } from "./model.ts";
 import { archonBinary, harnessRoot, managedArchonHome, ompAgentDir } from "./paths.ts";
 
 const ompConfigSchema = z
@@ -24,11 +25,14 @@ export interface InstallResult {
   ompConfig: string;
   workflow: string;
   model: string;
+  thinking?: string;
+  runtimeConfig: string;
   downloaded: boolean;
 }
 
 export interface InstallOptions {
   model?: string;
+  thinking?: string;
   forceDownload?: boolean;
   fetch?: typeof fetch;
   paths?: InstallPaths;
@@ -43,10 +47,6 @@ function defaultPaths(): InstallPaths {
   };
 }
 
-function modelWithoutEffort(model: string): string {
-  return model.replace(/:(?:minimal|low|medium|high|xhigh)$/i, "");
-}
-
 async function readOmpConfig(path: string): Promise<string> {
   try {
     return await readFile(path, "utf8");
@@ -56,15 +56,15 @@ async function readOmpConfig(path: string): Promise<string> {
   }
 }
 
-export function resolvePiModel(content: string, explicit?: string): string {
-  if (explicit) return modelWithoutEffort(explicit);
+export function resolvePiModel(content: string, explicit?: string, thinking?: string) {
   const configured = ompConfigSchema.parse(content ? parse(content) : {}).modelRoles?.default;
-  if (!configured) {
+  const rawModel = explicit ?? configured;
+  if (!rawModel) {
     throw new Error(
       "No Pi model configured. Pass --model <provider/model> or set modelRoles.default in OMP config.",
     );
   }
-  return modelWithoutEffort(configured);
+  return applyThinkingOverride(parseModelSelection(rawModel), thinking);
 }
 
 function releaseAssetName(): string {
@@ -121,9 +121,14 @@ export async function installHarness(options: InstallOptions = {}): Promise<Inst
   const paths = options.paths ?? defaultPaths();
   const ompConfigPath = join(paths.ompDir, "config.yml");
   const ompContent = await readOmpConfig(ompConfigPath);
-  const model = resolvePiModel(ompContent, options.model ?? process.env.HARNESS_PI_MODEL);
+  const selection = resolvePiModel(
+    ompContent,
+    options.model ?? process.env.HARNESS_PI_MODEL,
+    options.thinking ?? process.env.HARNESS_PI_THINKING,
+  );
   const workflowSource = join(paths.root, "config", "archon-efficient.yaml");
   const workflow = join(paths.archonHome, "workflows", "archon-efficient.yaml");
+  const runtimeConfig = join(paths.archonHome, "harness.yaml");
 
   let downloaded = false;
   if (options.forceDownload || !(await binaryInstalled(paths.binary))) {
@@ -142,7 +147,7 @@ export async function installHarness(options: InstallOptions = {}): Promise<Inst
     defaultAssistant: "pi",
     assistants: {
       pi: {
-        model,
+        model: selection.model,
         enableExtensions: true,
         interactive: false,
       },
@@ -151,8 +156,11 @@ export async function installHarness(options: InstallOptions = {}): Promise<Inst
   await mkdir(paths.archonHome, { recursive: true });
   const configPath = join(paths.archonHome, "config.yaml");
   const temporary = `${configPath}.tmp`;
+  const runtimeTemporary = `${runtimeConfig}.tmp`;
   await writeFile(temporary, stringify(config), "utf8");
+  await writeFile(runtimeTemporary, stringify({ omp: selection }), "utf8");
   await rename(temporary, configPath);
+  await rename(runtimeTemporary, runtimeConfig);
   await rm(`${paths.binary}.tmp`, { force: true });
 
   return {
@@ -160,7 +168,9 @@ export async function installHarness(options: InstallOptions = {}): Promise<Inst
     archonHome: paths.archonHome,
     ompConfig: ompConfigPath,
     workflow,
-    model,
+    model: selection.model,
+    ...(selection.thinking ? { thinking: selection.thinking } : {}),
+    runtimeConfig,
     downloaded,
   };
 }

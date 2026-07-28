@@ -20,6 +20,7 @@ async function run(): Promise<void> {
     const agentDir = join(root, "omp-agent");
     const workflows = join(archonHome, "workflows");
     const auditFile = join(root, "audit.jsonl");
+    const finalResponse = join(root, "final-response.txt");
     await Promise.all([
       mkdir(workflows, { recursive: true }),
       mkdir(agentDir, { recursive: true }),
@@ -58,6 +59,7 @@ async function run(): Promise<void> {
           ARCHON_HARNESS_DATA: join(homedir(), ".local", "share", "archon-harness"),
           ARCHON_TELEMETRY_DISABLED: "1",
           DO_NOT_TRACK: "1",
+          HOME: homedir(),
           PI_CODING_AGENT_DIR: agentDir,
           PATH: process.env.PATH || "/usr/bin:/bin",
           SHELL: "/bin/zsh",
@@ -67,6 +69,7 @@ async function run(): Promise<void> {
           HARNESS_OMP: join(harnessRoot(), "tests", "fixtures", "fake-omp.ts"),
           HARNESS_EXTENSION: join(harnessRoot(), "src", "extension", "index.ts"),
           HARNESS_AUDIT_PATH: auditFile,
+          HARNESS_FINAL_RESPONSE: finalResponse,
           AGENTMEMORY_URL: "http://127.0.0.1:3111",
           CI: "1",
         },
@@ -91,6 +94,9 @@ async function run(): Promise<void> {
     }
     if (stdout.includes("title.generate_completed")) {
       throw new Error("Archon made an unexpected successful title-model call");
+    }
+    if ((await readFile(finalResponse, "utf8")).trim() !== "no-model OMP lifecycle completed") {
+      throw new Error("Archon workflow did not capture OMP's final response");
     }
 
     const evidenceMatch = stdout.match(/"evidence":\s*"([^"]+\/evidence\.json)"/);

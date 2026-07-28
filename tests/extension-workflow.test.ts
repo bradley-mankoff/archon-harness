@@ -55,5 +55,7 @@ describe("Archon workflow", () => {
     const agent = workflow.nodes.find((node) => node.id === "agent");
     expect(agent?.bash).toContain("$HARNESS_OMP");
     expect(agent?.bash).toContain('--extension "$HARNESS_EXTENSION"');
+    expect(agent?.bash).toContain('--thinking "$HARNESS_OMP_THINKING"');
+    expect(agent?.bash).toContain('> "$HARNESS_FINAL_RESPONSE"');
   });
 });

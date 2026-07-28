@@ -3,5 +3,6 @@ node_modules/
 .gitnexus/
 coverage/
 dist/
+db/
 *.log
 .DS_Store

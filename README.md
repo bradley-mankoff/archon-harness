@@ -11,11 +11,15 @@ bun run install:harness
 
 The installer downloads and verifies the pinned Archon release, writes a dedicated Archon home under `~/.local/share/archon-harness/archon`, and installs the global `archon-efficient` workflow there. It reads OMP's default model but does not modify OMP auth, extensions, or settings. OMP 17.1.6 already defaults to hashline; the installer does not override `edit.mode`.
 
-If OMP has no `modelRoles.default`, provide a Pi model explicitly:
+If OMP has no `modelRoles.default`, provide a model explicitly. Thinking is stored separately and passed to OMP's `--thinking` flag:
 
 ```bash
-bun run install:harness -- --model openai-codex/gpt-5.6-sol
+bun run install:harness -- --model xai-oauth/grok-4.5 --thinking minimal
 ```
+
+The equivalent suffix form, `--model xai-oauth/grok-4.5:minimal`, is accepted. Valid levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `auto`. Malformed or conflicting selectors fail before installation; literal colon-bearing model IDs remain valid. Archon receives the base `provider/model` for workflow metadata and title fallback; OMP receives the base model and thinking level independently.
+
+On the verified OMP 17.1.6 installation, Grok 4.5 advertises levels from `minimal` through `xhigh`, not literal `off`. Use `minimal` for the cheapest supported Grok canary, and recheck with `omp models xai-oauth --json` after OMP catalog updates.
 
 ## Run
 
@@ -23,7 +27,16 @@ bun run install:harness -- --model openai-codex/gpt-5.6-sol
 bun src/cli.ts chat --cwd /absolute/path/to/repo "Fix the failing tests"
 ```
 
+Read-only Grok canary after installing with `--thinking minimal`:
+
+```bash
+bun src/cli.ts chat --cwd /absolute/path/to/repo \
+  "Read-only canary. Report the repository name and current branch. Do not edit files or run tests."
+```
+
 Every run enters Archon first. The `archon-efficient` workflow performs deterministic preflight checks, launches this checkout's pinned OMP 17.1.6 binary with the extension explicitly loaded, and refuses completion unless the audit contains activation evidence for every always-on module. Archon's embedded Pi provider is intentionally not used: Archon v0.6.0 embeds Pi 0.80.6, whose edit tool predates hashline.
+
+OMP's final response is captured by the workflow and printed after Archon completes. Archon may still fail to resolve extension-provided models for its optional title generation; that produces `title.generate_failed` followed by `title.fallback_set` and does not prevent OMP from using its authenticated provider.
 
 ## Verify
 

@@ -64,7 +64,7 @@ export class GitNexusAdapter implements HarnessAdapter {
     return {
       name: `${this.name}-index`,
       ok: result.exitCode === 0,
-      detail: (result.stdout || result.stderr).trim().slice(-1_000),
+      detail: [result.stdout, result.stderr].filter(Boolean).join("\n").trim().slice(-2_000),
       evidence: { durationMs: result.durationMs, outputBytes: result.returnedBytes },
     };
   }

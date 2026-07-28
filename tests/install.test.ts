@@ -16,8 +16,29 @@ afterEach(async () => {
 describe("installer", () => {
   test("resolves the OMP default model without changing its config", () => {
     const content = "modelRoles:\n  default: openai/gpt-test:high\nextensions:\n  - /old.ts\n";
-    expect(resolvePiModel(content)).toBe("openai/gpt-test");
-    expect(resolvePiModel(content, "anthropic/claude-test:xhigh")).toBe("anthropic/claude-test");
+    expect(resolvePiModel(content)).toEqual({ model: "openai/gpt-test", thinking: "high" });
+    expect(resolvePiModel(content, "anthropic/claude-test:xhigh")).toEqual({
+      model: "anthropic/claude-test",
+      thinking: "xhigh",
+    });
+    expect(resolvePiModel("", "xai-oauth/grok-4.5", "minimal")).toEqual({
+      model: "xai-oauth/grok-4.5",
+      thinking: "minimal",
+    });
+  });
+
+  test("validates model and thinking syntax before installation", () => {
+    expect(() => resolvePiModel("", "xai-oauth/grok-4.5::xhigh")).toThrow("empty model segment");
+    expect(resolvePiModel("", "openrouter/arcee-ai/trinity-mini:free")).toEqual({
+      model: "openrouter/arcee-ai/trinity-mini:free",
+    });
+    expect(resolvePiModel("", "openrouter/anthropic/claude-3.7-sonnet:thinking:high")).toEqual({
+      model: "openrouter/anthropic/claude-3.7-sonnet:thinking",
+      thinking: "high",
+    });
+    expect(() => resolvePiModel("", "xai-oauth/grok-4.5:minimal", "off")).toThrow(
+      "Conflicting thinking levels",
+    );
   });
 
   test("verifies checksum and installs a runnable pinned Archon binary", async () => {
@@ -44,13 +65,20 @@ describe("installer", () => {
       paths: { root: process.cwd(), binary, archonHome, ompDir },
     });
 
-    expect(result).toMatchObject({ downloaded: true, model: "openai/gpt-test" });
+    expect(result).toMatchObject({
+      downloaded: true,
+      model: "openai/gpt-test",
+      thinking: "xhigh",
+    });
     expect(await readFile(join(ompDir, "config.yml"), "utf8")).toBe(
       "modelRoles:\n  default: openai/gpt-test:xhigh\n",
     );
     expect(parse(await readFile(join(archonHome, "config.yaml"), "utf8"))).toMatchObject({
       defaultAssistant: "pi",
       assistants: { pi: { model: "openai/gpt-test" } },
+    });
+    expect(parse(await readFile(join(archonHome, "harness.yaml"), "utf8"))).toEqual({
+      omp: { model: "openai/gpt-test", thinking: "xhigh" },
     });
     expect(
       await Bun.file(join(archonHome, "workflows", "archon-efficient.yaml")).exists(),
