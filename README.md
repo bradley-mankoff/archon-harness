@@ -38,6 +38,19 @@ Every run enters Archon first. The `archon-efficient` workflow performs determin
 
 Successful `chat` runs print only OMP's final response. Archon orchestration output, its optional title fallback warning, and OMP progress are retained under `~/.local/share/archon-harness/logs/<run-id>.*.log`. A failed run prints one concise error with the Archon and OMP log paths. The title warning still exists inside Archon v0.6.0 because its embedded Pi catalog cannot resolve extension-provided models; it is diagnostic noise, not an OMP failure, and no longer reaches the user-facing terminal stream.
 
+## Browser UI direction
+
+The evaluated UI options and integration constraints are recorded in
+[`docs/ui-options.md`](docs/ui-options.md). Archon's built-in web UI is the recommended owner because
+it already understands projects, workflow selection, parallel runs, DAG progress, and conversation
+lifecycle. It is not wired into this harness yet: only `archon-efficient` currently guarantees the
+full OMP optimization stack, and a safe wrapper must isolate credentials, force loopback, and assign
+per-run audit/response/log paths before the UI is exposed.
+
+This repository runs **OMP**, a coding-focused fork of Pi, rather than stock Pi. OMP 17.1.6 ships
+hashline as its native default edit mode. Stock Pi can add hashline behavior through third-party Pi
+packages, but does not ship OMP's native implementation.
+
 ## Measure components
 
 ```bash

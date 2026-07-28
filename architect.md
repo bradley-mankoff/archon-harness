@@ -26,20 +26,24 @@ Build one Archon-owned coding harness. Save context and model turns without weak
 
 ## Runtime
 
-```text
-user
-  -> archon-harness chat
-  -> Archon workflow: archon-efficient
-  -> deterministic preflight: memory service + GitNexus index + local contract checks
-  -> deterministic bash node launches pinned OMP 17.1.6 in print mode
-  -> OMP with explicitly loaded harness extension + system policy
-       -> native hashline edit
-       -> command_batch: step DAG + RTK output filtering
-       -> code_scout: bounded GitNexus query/context/impact
-       -> memory tools: bounded agentmemory calls
-  -> memory observation/session close
-  -> captured OMP final response printed by archon-harness; diagnostics retained in run logs
+```mermaid
+flowchart LR
+  U[User] -->|browser UI or CLI| A[Archon v0.6.0]
+  A -->|selected workflow| W[archon-efficient DAG]
+  W --> P[Preflight]
+  P --> O[OMP 17.1.6]
+  O --> H[Native hashline edit]
+  O --> B[Command batching + RTK]
+  O --> G[Bounded GitNexus scout]
+  O --> M[Local agentmemory]
+  O --> F[Postflight evidence]
+  F --> A
+  A --> U
 ```
+
+The browser surface is Archon's own UI, not a second agent runtime. The harness starts it on
+`127.0.0.1`; projects and workflows remain Archon-owned, while every `archon-efficient` agent node
+still launches the pinned OMP binary with the harness extension and policy.
 
 ## Modules
 
