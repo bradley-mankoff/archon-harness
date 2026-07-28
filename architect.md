@@ -67,13 +67,13 @@ user
 
 ## Compatibility Verification
 
-`tests/contracts` records executable help/version and adapter response contracts. `tests/differential` proves optimized and baseline paths preserve behavior. `tests/integration` crosses Archon-to-OMP and adapter boundaries. `benchmark` reports measured byte/token effects without treating estimates as provider billing facts.
+The Bun suite checks immutable upstream metadata, adapters, command batching, hashline edits, extension loading, workflow structure, installation, redaction, and fail-closed activation evidence. `tests/integration` runs the installed Archon DAG through the real harness extension with a no-model fixture. `doctor` verifies installed executable boundaries, `smoke` exercises every local optimization, and `benchmark` verifies that RTK rewrites the representative command while documenting its fidelity boundary.
 
 An upstream update is accepted only when:
 
 - pinned identity matches;
-- CLI/API contract snapshots pass;
-- hashline and RTK differential outputs preserve fixture semantics;
+- CLI/API contract checks pass;
+- hashline fixture edits and RTK command rewriting preserve their asserted semantics;
 - GitNexus finds expected symbols and limits output;
 - agentmemory recalls seeded facts within budget;
 - Archon executes the workflow through OMP;
