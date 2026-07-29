@@ -5,6 +5,7 @@ import { z } from "zod";
 import lock from "../upstreams.lock.json";
 import { applyThinkingOverride, parseModelSelection } from "./model.ts";
 import { archonBinary, harnessRoot, managedArchonHome, ompAgentDir } from "./paths.ts";
+import { harnessProfileSchema, type HarnessProfile, type ManagedProfiles } from "./profile.ts";
 
 const ompConfigSchema = z
   .object({
@@ -23,16 +24,19 @@ export interface InstallResult {
   binary: string;
   archonHome: string;
   ompConfig: string;
-  workflow: string;
-  model: string;
-  thinking?: string;
+  workflows: string[];
+  defaultProfile: HarnessProfile;
+  profiles: ManagedProfiles["profiles"];
   runtimeConfig: string;
   downloaded: boolean;
 }
 
 export interface InstallOptions {
   model?: string;
+  ompModel?: string;
+  piModel?: string;
   thinking?: string;
+  defaultProfile?: string;
   forceDownload?: boolean;
   fetch?: typeof fetch;
   paths?: InstallPaths;
@@ -56,12 +60,12 @@ async function readOmpConfig(path: string): Promise<string> {
   }
 }
 
-export function resolvePiModel(content: string, explicit?: string, thinking?: string) {
+export function resolveModelSelection(content: string, explicit?: string, thinking?: string) {
   const configured = ompConfigSchema.parse(content ? parse(content) : {}).modelRoles?.default;
   const rawModel = explicit ?? configured;
   if (!rawModel) {
     throw new Error(
-      "No Pi model configured. Pass --model <provider/model> or set modelRoles.default in OMP config.",
+      "No model configured. Pass --model <provider/model> or set modelRoles.default in OMP config.",
     );
   }
   return applyThinkingOverride(parseModelSelection(rawModel), thinking);
@@ -121,13 +125,25 @@ export async function installHarness(options: InstallOptions = {}): Promise<Inst
   const paths = options.paths ?? defaultPaths();
   const ompConfigPath = join(paths.ompDir, "config.yml");
   const ompContent = await readOmpConfig(ompConfigPath);
-  const selection = resolvePiModel(
-    ompContent,
-    options.model ?? process.env.HARNESS_PI_MODEL,
-    options.thinking ?? process.env.HARNESS_PI_THINKING,
+  const sharedModel = options.model ?? process.env.HARNESS_MODEL;
+  const piModel = options.piModel ?? sharedModel ?? process.env.HARNESS_PI_MODEL;
+  const thinking = options.thinking ?? process.env.HARNESS_THINKING;
+  const profiles: ManagedProfiles["profiles"] = {
+    "omp-native": resolveModelSelection(
+      ompContent,
+      options.ompModel ?? sharedModel ?? process.env.HARNESS_OMP_MODEL,
+      thinking,
+    ),
+    ...(piModel ? { "pi-modular": resolveModelSelection("", piModel, thinking) } : {}),
+  };
+  const defaultProfile = harnessProfileSchema.parse(options.defaultProfile ?? "omp-native");
+  if (defaultProfile === "pi-modular" && !profiles["pi-modular"]) {
+    throw new Error("The pi-modular default profile requires --pi-model <provider/model>");
+  }
+  const workflowNames = ["archon-efficient", "archon-efficient-omp", "archon-efficient-pi"];
+  const workflows = workflowNames.map((name) =>
+    join(paths.archonHome, "workflows", `${name}.yaml`),
   );
-  const workflowSource = join(paths.root, "config", "archon-efficient.yaml");
-  const workflow = join(paths.archonHome, "workflows", "archon-efficient.yaml");
   const runtimeConfig = join(paths.archonHome, "harness.yaml");
 
   let downloaded = false;
@@ -139,15 +155,19 @@ export async function installHarness(options: InstallOptions = {}): Promise<Inst
     downloaded = true;
   }
 
-  await mkdir(dirname(workflow), { recursive: true });
-  await copyFile(workflowSource, workflow);
+  await mkdir(dirname(workflows[0] as string), { recursive: true });
+  await Promise.all(
+    workflowNames.map((name, index) =>
+      copyFile(join(paths.root, "config", `${name}.yaml`), workflows[index] as string),
+    ),
+  );
 
   const config = {
     botName: "Archon Harness",
     defaultAssistant: "pi",
     assistants: {
       pi: {
-        model: selection.model,
+        model: profiles["pi-modular"]?.model ?? "archon-harness/no-title",
         enableExtensions: true,
         interactive: false,
       },
@@ -158,7 +178,7 @@ export async function installHarness(options: InstallOptions = {}): Promise<Inst
   const temporary = `${configPath}.tmp`;
   const runtimeTemporary = `${runtimeConfig}.tmp`;
   await writeFile(temporary, stringify(config), "utf8");
-  await writeFile(runtimeTemporary, stringify({ omp: selection }), "utf8");
+  await writeFile(runtimeTemporary, stringify({ defaultProfile, profiles }), "utf8");
   await rename(temporary, configPath);
   await rename(runtimeTemporary, runtimeConfig);
   await rm(`${paths.binary}.tmp`, { force: true });
@@ -167,9 +187,9 @@ export async function installHarness(options: InstallOptions = {}): Promise<Inst
     binary: paths.binary,
     archonHome: paths.archonHome,
     ompConfig: ompConfigPath,
-    workflow,
-    model: selection.model,
-    ...(selection.thinking ? { thinking: selection.thinking } : {}),
+    workflows,
+    defaultProfile,
+    profiles,
     runtimeConfig,
     downloaded,
   };

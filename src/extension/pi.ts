@@ -1,48 +1,24 @@
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-import { DEFAULT_EDIT_MODE } from "@oh-my-pi/pi-coding-agent/utils/edit-mode";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { agentMemoryAdapter } from "../adapters/agentmemory.ts";
-import { gitNexusAdapter } from "../adapters/gitnexus.ts";
 import { recordAudit } from "../audit.ts";
-import { executeBatch } from "../batch.ts";
-import { harnessRoot } from "../paths.ts";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { z } from "zod";
+import {
+  automaticStructuralContext,
+  codeScoutParamsSchema,
+  commandBatchParamsSchema,
+  concisePolicy,
+  memorySearchParamsSchema,
+  runCodeScout,
+  runCommandBatch,
+  text,
+  toolText,
+} from "./shared.ts";
 
-const commandBatchParamsSchema = z.object({
-  commands: z.array(
-    z.object({
-      command: z.string().min(1),
-      step: z.number().int().positive().default(1),
-      timeoutMs: z.number().int().positive().max(900_000).default(30_000),
-    }),
-  ),
-});
-
-const codeScoutParamsSchema = z.object({
-  kind: z.enum(["query", "context", "impact"]),
-  target: z.string().min(1).max(2_000),
-  limit: z.number().int().min(1).max(10).default(5),
-});
-
-const memorySearchParamsSchema = z.object({
-  query: z.string().min(1).max(2_000),
-  limit: z.number().int().min(1).max(10).default(5),
-});
-
-function text(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-function toolText(value: string, details: Record<string, unknown> = {}) {
-  return { content: [{ type: "text" as const, text: value }], details };
-}
-
-export default async function archonHarnessExtension(pi: ExtensionAPI): Promise<void> {
-  const { Type } = pi.typebox;
-  const policy = await readFile(join(harnessRoot(), "prompts", "caveman-full.md"), "utf8");
+export default async function piHarnessExtension(pi: ExtensionAPI): Promise<void> {
+  const policy = await concisePolicy();
   const sessionId = `archon-harness-${crypto.randomUUID()}`;
   let cwd = process.cwd();
+  let structuralContext = "";
   let recalledContext = "";
   let memoryStarted = false;
 
@@ -50,7 +26,7 @@ export default async function archonHarnessExtension(pi: ExtensionAPI): Promise<
     name: "command_batch",
     label: "Command batch",
     description:
-      "Run up to 20 shell commands in dependency steps; commands in one step run concurrently and RTK compacts supported output.",
+      "Run up to 20 shell commands in dependency steps. Commands in one step run concurrently; RTK compacts supported noisy output.",
     parameters: Type.Object({
       commands: Type.Array(
         Type.Object({
@@ -61,16 +37,9 @@ export default async function archonHarnessExtension(pi: ExtensionAPI): Promise<
         { minItems: 1, maxItems: 20 },
       ),
     }),
-    approval: "exec",
-    loadMode: "essential",
     async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
-      const params = commandBatchParamsSchema.parse(rawParams);
-      const result = await executeBatch(params, ctx.cwd);
-      await recordAudit("batching", "model_tool_executed", {
-        commands: result.commands.length,
-        ok: result.ok,
-      });
-      return toolText(JSON.stringify(result), { ok: result.ok, commands: result.commands.length });
+      commandBatchParamsSchema.parse(rawParams);
+      return runCommandBatch(rawParams, ctx.cwd, true);
     },
   });
 
@@ -78,22 +47,15 @@ export default async function archonHarnessExtension(pi: ExtensionAPI): Promise<
     name: "code_scout",
     label: "Code scout",
     description:
-      "Return bounded GitNexus structural query, symbol context, or impact analysis for the current indexed repository.",
+      "Use for repository-wide relationships, call chains, architecture, or blast-radius analysis.",
     parameters: Type.Object({
       kind: Type.Union([Type.Literal("query"), Type.Literal("context"), Type.Literal("impact")]),
       target: Type.String({ minLength: 1, maxLength: 2_000 }),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, default: 5 })),
     }),
-    approval: "read",
-    loadMode: "essential",
     async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
-      const params = codeScoutParamsSchema.parse(rawParams);
-      const output = await gitNexusAdapter.scout(params, ctx.cwd);
-      await recordAudit("gitnexus", "model_tool_executed", {
-        kind: params.kind,
-        bytes: Buffer.byteLength(output),
-      });
-      return toolText(output, { kind: params.kind, bytes: Buffer.byteLength(output) });
+      codeScoutParamsSchema.parse(rawParams);
+      return runCodeScout(rawParams, ctx.cwd);
     },
   });
 
@@ -105,8 +67,6 @@ export default async function archonHarnessExtension(pi: ExtensionAPI): Promise<
       query: Type.String({ minLength: 1, maxLength: 2_000 }),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, default: 5 })),
     }),
-    approval: "read",
-    loadMode: "essential",
     async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
       const params = memorySearchParamsSchema.parse(rawParams);
       const output = await agentMemoryAdapter.search(
@@ -126,25 +86,28 @@ export default async function archonHarnessExtension(pi: ExtensionAPI): Promise<
     cwd = ctx.cwd;
     recalledContext = await agentMemoryAdapter.start(sessionId, cwd);
     memoryStarted = true;
-    await recordAudit("omp", "extension_session_started", {
+    await recordAudit("pi", "session_started", {
       tools: ["command_batch", "code_scout", "memory_search"],
     });
+    await recordAudit("hashline", "runtime_verified", {
+      implementation: "pi-hashline-edit-pro",
+    });
+    await recordAudit("batching", "tool_registered", { rtk: true });
     await recordAudit("agentmemory", "session_started", {
       contextBytes: Buffer.byteLength(recalledContext),
     });
-    if (DEFAULT_EDIT_MODE !== "hashline") {
-      throw new Error(`OMP default edit mode changed to ${DEFAULT_EDIT_MODE}`);
-    }
-    await recordAudit("hashline", "extension_default_verified", { mode: DEFAULT_EDIT_MODE });
   });
 
-  pi.on("before_agent_start", async (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     await agentMemoryAdapter.observe(sessionId, cwd, "prompt_submit", { prompt: event.prompt });
-    await recordAudit("caveman", "policy_injected", { bytes: Buffer.byteLength(policy) });
+    structuralContext ||= await automaticStructuralContext(event.prompt, ctx.cwd);
+    await recordAudit("concise", "policy_injected", { bytes: Buffer.byteLength(policy) });
     const memory = recalledContext.trim()
       ? `\n\n# Recalled project memory\n${recalledContext.slice(0, 8_000)}`
       : "";
-    return { systemPrompt: [...event.systemPrompt, policy + memory] };
+    return {
+      systemPrompt: `${event.systemPrompt}\n\n${policy}\n\n# Automatic structural context\n${structuralContext}${memory}`,
+    };
   });
 
   pi.on("tool_result", async (event) => {

@@ -6,7 +6,6 @@ describe("upstream compatibility lock", () => {
     expect(Object.keys(lock.upstreams).sort()).toEqual([
       "agentmemory",
       "archon",
-      "caveman",
       "gitnexus",
       "omp",
       "rtk",

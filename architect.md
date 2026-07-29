@@ -2,13 +2,13 @@
 
 ## Goal
 
-Build one Archon-owned coding harness. Save context and model turns without weakening edits, search, validation, or memory. Keep upstream tools replaceable and independently updatable.
+Build one Archon-owned comparison harness with isolated OMP-native and Pi-modular profiles. Save context and model turns without weakening edits, search, validation, or profile attribution. Keep upstream tools replaceable and independently updatable.
 
 ## Invariants
 
 1. `archon-harness chat` enters Archon. No direct OMP shortcut.
-2. Archon runs deterministic workflow nodes. OMP owns model loop and hashline edits.
-3. Every optimization is enabled by default. Missing required modules fail `doctor`; no silent fallback.
+2. Archon runs deterministic workflow nodes. The selected profile owns its model loop and hashline implementation.
+3. Every optimization assigned to a profile is enabled by default. Missing required modules fail `doctor`; no silent fallback.
 4. Compression preserves exit status, decisive diagnostics, paths, code, commands, URLs, numbers, and structured data needed by the next step.
 5. Code scouting returns bounded structural context. It does not dump an index or repository into model context.
 6. Memory stores session knowledge, not credentials or raw environment values. Recall uses a fixed token budget.
@@ -16,8 +16,8 @@ Build one Archon-owned coding harness. Save context and model turns without weak
 8. Upstream repositories remain untouched. Adapters depend on pinned releases or commits through small process/API contracts.
 9. Tura AGPL code and GitNexus PolyForm code are not copied. Tura-style batching is an independent implementation; GitNexus runs as an external licensed tool.
 10. Updates pass contract, differential, integration, and token-effect checks before lock changes merge.
-11. Archon stores a base provider/model; OMP thinking is validated and passed independently.
-12. A successful CLI run surfaces OMP's nonempty final response after Archon completes.
+11. Archon stores independent provider/model and thinking selections for each configured profile. An unconfigured profile fails before agent launch; it never inherits another runtime's provider.
+12. A successful CLI run surfaces the selected agent's nonempty final response after Archon completes.
 13. User-facing stdout contains only the final response; orchestration and progress streams remain in per-run logs.
 14. Token-effect claims are component-specific. Uncontrolled or paid-model effects are labeled as requiring A/B evidence.
 15. Slack ingress is optional, Socket Mode only, and restricted by exact user, channel, and repository allowlists.
@@ -28,23 +28,28 @@ Build one Archon-owned coding harness. Save context and model turns without weak
 
 ```mermaid
 flowchart LR
-  U[User] -->|browser UI or CLI| A[Archon v0.6.0]
-  A -->|selected workflow| W[archon-efficient DAG]
+  U[User] -->|CLI| A[Archon v0.6.0]
+  U -->|127.0.0.1 browser| L[Strict UI launcher]
+  L --> A
+  A -->|bundled or repository workflow| D[Archon provider DAG]
+  A -->|harness workflow| W[Profile DAG]
   W --> P[Preflight]
-  P --> O[OMP 17.1.6]
-  O --> H[Native hashline edit]
-  O --> B[Command batching + RTK]
+  P --> O[OMP 17.1.6 native]
+  P --> I[Pi 0.82.1 modular]
+  O --> H[Native hashline + batching]
+  I --> M[Strict hashline + RTK + memory]
   O --> G[Bounded GitNexus scout]
-  O --> M[Local agentmemory]
-  O --> F[Postflight evidence]
+  I --> G
+  G --> F[Profile evidence]
   F --> A
   A --> U
 ```
 
-The recommended browser surface is Archon's own UI, not a second agent runtime. A future harness
-launcher must start it on `127.0.0.1`; projects and workflows remain Archon-owned, while every
-`archon-efficient` agent node still launches the pinned OMP binary with the harness extension and
-policy.
+The browser surface is Archon's own UI, not a second agent runtime. The harness launcher binds it to
+`127.0.0.1` behind a narrow presentation proxy, strips ambient credentials, rejects overriding Archon
+dotenv files, disables telemetry, and verifies readiness. Archon owns projects, conversations,
+workflow JSON, and run state. The proxy changes only HTML presentation so workflow IDs and API payloads
+remain upstream-owned. Harness workflows launch their explicit profile with unique per-run artifacts.
 
 ## Modules
 
@@ -52,15 +57,16 @@ policy.
 | --- | --- | --- | --- |
 | Archon | deterministic workflow, isolation, channel adapters | CLI + YAML workflow; no embedded Pi model call | hard fail |
 | Tura pattern | batched commands grouped by dependency step | `command_batch` tool | hard fail per step; later steps skipped |
-| OMP | native hashline edits | OMP CLI and extension API | hard fail |
-| Caveman | terse response and prose-doc policy | system prompt loaded every run | hard fail if prompt missing |
-| RTK | compact command output | external `rtk` process inside batch executor | raw fallback only when config explicitly permits |
+| OMP native | native hashline; no RTK or memory | OMP CLI and OMP extension API | hard fail |
+| Pi modular | strict hashline plus modular extensions | Pi CLI and Pi extension API | hard fail |
+| Concise final | neutral verdict-first response policy | system prompt loaded every run | hard fail if prompt missing |
+| RTK | compact command output in `pi-modular` only | external `rtk` process inside batch executor | hard fail |
 | GitNexus | AST/graph/embedding scouting | external CLI with byte budget | hard fail for required scout; actionable stale-index result |
-| agentmemory | cross-session human-readable knowledge | REST lifecycle and bounded recall | hard fail by default; no hidden memory loss |
+| agentmemory | cross-session knowledge in `pi-modular` only | REST lifecycle and bounded recall | hard fail; absent from OMP profile |
 
 ## Contracts
 
-`ProcessRunner` accepts executable, argument array, cwd, environment allowlist, stdin, timeout, and output limit. It returns stdout, stderr, exit code, duration, truncation state, and measured bytes.
+`ProcessRunner` accepts executable, argument array, cwd, environment allowlist, stdin, timeout, and output limit. It uses Node process APIs because official Pi hosts harness extensions under Node, and returns stdout, stderr, exit code, duration, truncation state, and measured bytes.
 
 `HarnessAdapter` exposes `name`, `doctor()`, and `smoke()`. Pinned versions live in `upstreams.lock.json`; token-effect measurements use a separate benchmark contract so operational adapters stay narrow.
 
@@ -79,7 +85,7 @@ policy.
 
 ## Compatibility Verification
 
-The Bun suite checks immutable upstream metadata, adapters, command batching, hashline edits, extension loading, workflow structure, installation, redaction, Slack allowlists, quiet output, and fail-closed activation evidence. `tests/integration` runs the public chat command and installed Archon DAG through the real harness extension with a no-model fixture. `doctor` verifies installed executable boundaries, `smoke` exercises every local optimization, and `benchmark` measures offline component effects while refusing unsupported aggregate claims.
+The Bun suite checks immutable upstream metadata, adapters, Node-compatible command execution, command batching, hashline edits, both extension hosts, workflow structure, installation, redaction, Slack allowlists, quiet output, profile isolation, and fail-closed evidence. `tests/integration` runs the public chat command and both profile-specific Archon DAGs through their real harness extensions with no-model fixtures. `doctor` verifies both executable boundaries; `benchmark` measures offline component effects while refusing unsupported aggregate claims.
 
 An upstream update is accepted only when:
 

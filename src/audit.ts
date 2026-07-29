@@ -2,13 +2,15 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { redactRecord } from "./redaction.ts";
+import type { HarnessProfile } from "./profile.ts";
 
 export const harnessModules = [
   "archon",
   "batching",
   "omp",
+  "pi",
   "hashline",
-  "caveman",
+  "concise",
   "rtk",
   "gitnexus",
   "agentmemory",
@@ -23,15 +25,28 @@ const auditEntrySchema = z.object({
 
 export type HarnessModule = (typeof harnessModules)[number];
 
-export const requiredActivationEvents: Record<HarnessModule, string> = {
-  archon: "workflow_preflight",
-  batching: "dependency_steps_executed",
-  omp: "extension_session_started",
-  hashline: "extension_default_verified",
-  caveman: "policy_injected",
-  rtk: "rewrite_verified",
-  gitnexus: "index_ready",
-  agentmemory: "session_started",
+export const requiredActivationEvents: Record<
+  HarnessProfile,
+  Partial<Record<HarnessModule, string>>
+> = {
+  "omp-native": {
+    archon: "workflow_preflight",
+    batching: "tool_registered",
+    omp: "session_started",
+    hashline: "runtime_verified",
+    concise: "policy_injected",
+    gitnexus: "context_injected",
+  },
+  "pi-modular": {
+    archon: "workflow_preflight",
+    batching: "tool_registered",
+    pi: "session_started",
+    hashline: "runtime_verified",
+    concise: "policy_injected",
+    rtk: "rewrite_verified",
+    gitnexus: "context_injected",
+    agentmemory: "session_started",
+  },
 };
 
 export async function recordAudit(
@@ -59,23 +74,29 @@ export async function readAudit(path: string): Promise<z.infer<typeof auditEntry
     .map((line) => auditEntrySchema.parse(JSON.parse(line)));
 }
 
-export async function writeEvidence(auditFile: string, artifactsDir: string): Promise<string> {
+export async function writeEvidence(
+  auditFile: string,
+  artifactsDir: string,
+  profile: HarnessProfile,
+): Promise<string> {
   const entries = await readAudit(auditFile);
   const active = new Set(entries.map((entry) => `${entry.module}:${entry.event}`));
-  const missing = harnessModules.filter(
-    (module) => !active.has(`${module}:${requiredActivationEvents[module]}`),
+  const required = requiredActivationEvents[profile];
+  const missing = Object.entries(required).filter(
+    ([module, event]) => !active.has(`${module}:${event}`),
   );
   if (missing.length > 0)
     throw new Error(
       `Harness activations missing from audit: ${missing
-        .map((module) => `${module}:${requiredActivationEvents[module]}`)
+        .map(([module, event]) => `${module}:${event}`)
         .join(", ")}`,
     );
   const evidencePath = join(artifactsDir, "evidence.json");
   const evidence = {
     valid: true,
-    modules: harnessModules,
-    activations: requiredActivationEvents,
+    profile,
+    modules: Object.keys(required),
+    activations: required,
     auditEntries: entries.length,
     auditFile,
   };

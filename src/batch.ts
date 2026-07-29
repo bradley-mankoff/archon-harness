@@ -55,6 +55,7 @@ export async function executeBatch(
     runner: processRunner,
     rtk: rtkAdapter,
   },
+  useRtk = true,
 ): Promise<BatchResult> {
   const request = batchRequestSchema.parse(raw);
   const steps = [...new Set(request.commands.map((command) => command.step))].sort((a, b) => a - b);
@@ -82,7 +83,9 @@ export async function executeBatch(
 
     const stepResults = await Promise.all(
       commands.map(async (command): Promise<BatchCommandResult> => {
-        const rewrite = await dependencies.rtk.rewrite(command.command, cwd);
+        const rewrite = useRtk
+          ? await dependencies.rtk.rewrite(command.command, cwd)
+          : { command: command.command, rewritten: false };
         const execution = await dependencies.runner.run({
           executable: shellExecutable(),
           args: shellArgs(rewrite.command),
@@ -111,7 +114,7 @@ export async function executeBatch(
   return { ok: !failed, modelToolCalls: 1, commands: results };
 }
 
-export async function smokeBatch(cwd: string): Promise<CheckResult> {
+export async function smokeBatch(cwd: string, useRtk = true): Promise<CheckResult> {
   const result = await executeBatch(
     {
       commands: [
@@ -121,6 +124,8 @@ export async function smokeBatch(cwd: string): Promise<CheckResult> {
       ],
     },
     cwd,
+    undefined,
+    useRtk,
   );
   return {
     name: "tura-style-command-batch",

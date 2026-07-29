@@ -1,5 +1,5 @@
-name: archon-efficient
-description: "[OMP native, compatibility alias] Use archon-efficient-omp for explicit benchmark attribution."
+name: archon-efficient-omp
+description: "[OMP native] Tura-like efficient coding policy over pinned OMP: deterministic Archon boundary, bounded batching, automatic GitNexus context, and concise final output."
 provider: pi
 worktree:
   enabled: false

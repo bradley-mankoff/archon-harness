@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProcessRequest, ProcessResult } from "../src/contracts.ts";
 import { AgentMemoryAdapter } from "../src/adapters/agentmemory.ts";
-import { GitNexusAdapter } from "../src/adapters/gitnexus.ts";
+import { GitNexusAdapter, gitNexusRegistryPath } from "../src/adapters/gitnexus.ts";
 import { RtkAdapter } from "../src/adapters/rtk.ts";
 
 const temporaryPaths: string[] = [];
@@ -51,6 +51,25 @@ describe("RTK adapter", () => {
 });
 
 describe("agentmemory adapter", () => {
+  test("doctor checks the installed binary without requiring a running daemon", async () => {
+    let fetched = false;
+    const adapter = new AgentMemoryAdapter(
+      "http://127.0.0.1:1",
+      (async () => {
+        fetched = true;
+        throw new Error("doctor must not probe the service");
+      }) as unknown as typeof fetch,
+      {
+        async run() {
+          return processResult("0.9.28\n");
+        },
+      },
+    );
+
+    expect(await adapter.doctor()).toEqual({ name: "agentmemory", ok: true, detail: "0.9.28" });
+    expect(fetched).toBeFalse();
+  });
+
   test("accepts a compact search hit identified by the smoke session", async () => {
     let sessionId = "";
     const fetchStub = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -79,6 +98,12 @@ describe("agentmemory adapter", () => {
 });
 
 describe("GitNexus adapter", () => {
+  test("honors the supported isolated GitNexus home", () => {
+    expect(gitNexusRegistryPath({ GITNEXUS_HOME: "/tmp/isolated-gitnexus" })).toBe(
+      join("/tmp/isolated-gitnexus", "registry.json"),
+    );
+  });
+
   test("uses a canonical path when duplicate aliases would be ambiguous", async () => {
     const root = await mkdtemp(join(tmpdir(), "archon-harness-gitnexus-"));
     temporaryPaths.push(root);
@@ -109,5 +134,52 @@ describe("GitNexus adapter", () => {
     expect(await adapter.resolveRepository(nested)).toBe(canonicalRepoA);
     await adapter.scout({ kind: "query", target: "owner", limit: 3 }, nested);
     expect(calls[0]?.args).toEqual(["query", "owner", "--repo", canonicalRepoA, "--limit", "3"]);
+  });
+
+  test("repairs an explicitly inconsistent FTS index and retries analysis once", async () => {
+    const calls: ProcessRequest[] = [];
+    const responses = [
+      {
+        ...processResult("", 1),
+        stderr:
+          "FTS index 'file_fts' is inconsistent: document is missing. Drop and recreate the FTS index.",
+      },
+      processResult("FTS repair complete"),
+      processResult("Analysis complete"),
+    ];
+    const adapter = new GitNexusAdapter({
+      async run(request: ProcessRequest) {
+        calls.push(request);
+        const response = responses.shift();
+        if (!response) throw new Error("unexpected GitNexus invocation");
+        return response;
+      },
+    });
+
+    expect(await adapter.ensureIndex(process.cwd())).toMatchObject({
+      ok: true,
+      evidence: { repairedFts: true },
+    });
+    expect(calls.map((call) => call.args.slice(0, 2))).toEqual([
+      ["analyze", "--embeddings"],
+      ["analyze", "--repair-fts"],
+      ["analyze", "--embeddings"],
+    ]);
+  });
+
+  test("does not retry unrelated analysis failures", async () => {
+    const calls: ProcessRequest[] = [];
+    const adapter = new GitNexusAdapter({
+      async run(request: ProcessRequest) {
+        calls.push(request);
+        return { ...processResult("", 1), stderr: "ordinary parse failure" };
+      },
+    });
+
+    expect(await adapter.ensureIndex(process.cwd())).toMatchObject({
+      ok: false,
+      evidence: { repairedFts: false },
+    });
+    expect(calls).toHaveLength(1);
   });
 });

@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
 import { z } from "zod";
@@ -25,16 +25,20 @@ function containsPath(parent: string, child: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !rel.startsWith("/"));
 }
 
+export function gitNexusRegistryPath(environment: NodeJS.ProcessEnv = process.env): string {
+  return join(environment.GITNEXUS_HOME || join(homedir(), ".gitnexus"), "registry.json");
+}
+
 export class GitNexusAdapter implements HarnessAdapter {
   readonly name = "gitnexus";
 
   constructor(
     private readonly runner: Pick<typeof processRunner, "run"> = processRunner,
-    private readonly registryPath = join(homedir(), ".gitnexus", "registry.json"),
+    private readonly registryPath = gitNexusRegistryPath(),
   ) {}
 
   async resolveRepository(cwd: string): Promise<string> {
-    const registry = registrySchema.parse(await Bun.file(this.registryPath).json());
+    const registry = registrySchema.parse(JSON.parse(await readFile(this.registryPath, "utf8")));
     const canonicalCwd = await realpath(cwd);
     const matches = await Promise.all(
       registry.map(async (entry) => ({ ...entry, canonicalPath: await realpath(entry.path) })),
@@ -53,19 +57,47 @@ export class GitNexusAdapter implements HarnessAdapter {
 
   async ensureIndex(cwd: string): Promise<CheckResult> {
     const args = ["analyze", "--embeddings", "--skip-agents-md", "--index-only", cwd];
-    const result = await this.runner.run({
+    const request = {
       executable: "gitnexus",
       args,
       cwd,
       env: { GITNEXUS_EMBEDDING_THREADS: "2" },
       timeoutMs: 180_000,
       maxOutputBytes: 30_000,
-    });
+    };
+    let result = await this.runner.run(request);
+    let repairedFts = false;
+    const diagnostic = `${result.stdout}\n${result.stderr}`;
+    if (
+      result.exitCode !== 0 &&
+      diagnostic.includes("FTS index '") &&
+      diagnostic.includes("is inconsistent") &&
+      diagnostic.includes("Drop and recreate the FTS index")
+    ) {
+      const repair = await this.runner.run({
+        ...request,
+        args: ["analyze", "--repair-fts", "--skip-agents-md", "--index-only", cwd],
+      });
+      if (repair.exitCode !== 0) {
+        return {
+          name: `${this.name}-index`,
+          ok: false,
+          detail: [repair.stdout, repair.stderr].filter(Boolean).join("\n").trim().slice(-2_000),
+          evidence: {
+            repairedFts: false,
+            durationMs: result.durationMs + repair.durationMs,
+            outputBytes: result.returnedBytes + repair.returnedBytes,
+          },
+        };
+      }
+      repairedFts = true;
+      result = await this.runner.run(request);
+    }
     return {
       name: `${this.name}-index`,
       ok: result.exitCode === 0,
       detail: [result.stdout, result.stderr].filter(Boolean).join("\n").trim().slice(-2_000),
-      evidence: { durationMs: result.durationMs, outputBytes: result.returnedBytes },
+      evidence: { durationMs: result.durationMs, outputBytes: result.returnedBytes, repairedFts },
     };
   }
 

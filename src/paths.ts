@@ -35,7 +35,7 @@ export function auditPath(runId: string): string {
 
 export function runLogPath(
   runId: string,
-  stream: "archon-stdout" | "archon-stderr" | "omp-stderr",
+  stream: "archon-stdout" | "archon-stderr" | "agent-stderr",
 ): string {
   return join(dataRoot(), "logs", `${runId}.${stream}.log`);
 }

@@ -78,4 +78,29 @@ describe("command batching", () => {
     expect(batch.commands[0]?.exitCode).toBe(7);
     expect(batch.commands[1]).toMatchObject({ skipped: true, exitCode: 125 });
   });
+
+  test("does not invoke RTK when the owning profile disables it", async () => {
+    let rewrites = 0;
+    const batch = await executeBatch(
+      { commands: [{ command: "plain", step: 1, timeoutMs: 1_000 }] },
+      process.cwd(),
+      {
+        runner: { run: async () => result(0, "plain") },
+        rtk: {
+          rewrite: async (command: string) => {
+            rewrites += 1;
+            return { command, rewritten: true };
+          },
+        },
+      },
+      false,
+    );
+
+    expect(batch.ok).toBeTrue();
+    expect(rewrites).toBe(0);
+    expect(batch.commands[0]).toMatchObject({
+      executedCommand: "plain",
+      rewrittenByRtk: false,
+    });
+  });
 });

@@ -2,7 +2,20 @@
 import { loadExtensions } from "@oh-my-pi/pi-coding-agent";
 import { z } from "zod";
 
+if (process.env.HARNESS_FAKE_PI === "1") {
+  const child = Bun.spawn(
+    ["node", new URL("./fake-pi.ts", import.meta.url).pathname, ...process.argv.slice(2)],
+    { env: process.env, stdin: "inherit", stdout: "inherit", stderr: "inherit" },
+  );
+  process.exit(await child.exited);
+}
+
 const args = process.argv.slice(2);
+
+if (args.includes("--version")) {
+  process.stdout.write("17.1.6\n");
+  process.exit(0);
+}
 
 function option(name: string): string {
   const index = args.indexOf(name);
@@ -22,7 +35,7 @@ const loadedExtension = loaded.extensions[0];
 if (!loadedExtension) throw new Error("fake OMP did not load the harness extension");
 const extension = loadedExtension;
 
-const expectedTools = ["code_scout", "command_batch", "memory_search"];
+const expectedTools = ["code_scout", "command_batch"];
 if (JSON.stringify([...extension.tools.keys()].sort()) !== JSON.stringify(expectedTools)) {
   throw new Error("fake OMP did not receive all harness tools");
 }
@@ -41,10 +54,9 @@ const result = await emit("before_agent_start", {
   systemPrompt: ["fixture system prompt"],
 });
 const parsed = z.object({ systemPrompt: z.array(z.string()) }).parse(result);
-if (!parsed.systemPrompt.some((item) => item.includes("Always-on output policy"))) {
-  throw new Error("fake OMP did not receive the Caveman policy");
+if (!parsed.systemPrompt.some((item) => item.includes("Lead with the result"))) {
+  throw new Error("fake OMP did not receive the concise final policy");
 }
-await emit("session_shutdown", { type: "session_shutdown" });
 
 process.stderr.write("Working...\n");
 process.stdout.write("no-model OMP lifecycle completed\n");

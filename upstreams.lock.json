@@ -21,12 +21,6 @@
       "license": "MIT",
       "integration": "npm package and CLI"
     },
-    "caveman": {
-      "repository": "https://github.com/JuliusBrussee/caveman",
-      "commit": "0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0",
-      "license": "MIT",
-      "integration": "pinned external skill checkout"
-    },
     "rtk": {
       "repository": "https://github.com/rtk-ai/rtk",
       "version": "0.42.3",

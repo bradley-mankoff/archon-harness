@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { countTokens } from "gpt-tokenizer";
+import { join } from "node:path";
 import type { CheckResult, HarnessAdapter } from "../contracts.ts";
+import { harnessRoot } from "../paths.ts";
+import { processRunner } from "../process-runner.ts";
 import { redactRecord, redactText, redactUnknown } from "../redaction.ts";
 
 const sessionStartResponseSchema = z.object({
@@ -29,6 +32,7 @@ export class AgentMemoryAdapter implements HarnessAdapter {
   constructor(
     private readonly baseUrl = process.env.AGENTMEMORY_URL || "http://127.0.0.1:3111",
     private readonly fetchFn: typeof fetch = fetch,
+    private readonly runner: Pick<typeof processRunner, "run"> = processRunner,
   ) {}
 
   private headers(): Record<string, string> {
@@ -106,11 +110,17 @@ export class AgentMemoryAdapter implements HarnessAdapter {
 
   async doctor(): Promise<CheckResult> {
     try {
-      const response = await this.fetchFn(`${this.baseUrl}/agentmemory/health`, {
-        signal: AbortSignal.timeout(3_000),
+      const root = harnessRoot();
+      const result = await this.runner.run({
+        executable: join(root, "node_modules", ".bin", "agentmemory"),
+        args: ["--version"],
+        cwd: root,
+        env: {},
+        timeoutMs: 5_000,
+        maxOutputBytes: 2_000,
       });
-      const body = await response.text();
-      return { name: this.name, ok: response.ok, detail: body.slice(0, 500) };
+      const detail = (result.stdout || result.stderr).trim();
+      return { name: this.name, ok: result.exitCode === 0 && detail === "0.9.28", detail };
     } catch (error) {
       return { name: this.name, ok: false, detail: String(error) };
     }

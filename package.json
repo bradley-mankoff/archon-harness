@@ -17,10 +17,12 @@
     "doctor": "bun src/cli.ts doctor",
     "smoke": "bun src/cli.ts smoke",
     "benchmark": "bun src/cli.ts benchmark",
+    "ui": "bun src/cli.ts ui",
     "install:harness": "bun src/cli.ts install"
   },
   "dependencies": {
     "@agentmemory/agentmemory": "0.9.28",
+    "@earendil-works/pi-coding-agent": "0.82.1",
     "@oh-my-pi/hashline": "17.1.6",
     "@oh-my-pi/pi-coding-agent": "17.1.6",
     "@sinclair/typebox": "0.34.41",
@@ -28,6 +30,8 @@
     "commander": "14.0.2",
     "gitnexus": "1.6.9",
     "gpt-tokenizer": "3.4.0",
+    "pi-hashline-edit-pro": "0.18.0",
+    "typebox": "1.1.38",
     "yaml": "2.8.1",
     "zod": "4.1.12"
   },

@@ -7,6 +7,7 @@ import { agentMemoryAdapter } from "./adapters/agentmemory.ts";
 import { gitNexusAdapter } from "./adapters/gitnexus.ts";
 import { executeBatch } from "./batch.ts";
 import { processRunner } from "./process-runner.ts";
+import { readManagedModel } from "./runtime.ts";
 
 export type MeasurementStatus = "measured" | "bounded" | "verified" | "requires-live-a-b";
 
@@ -177,31 +178,34 @@ async function measureAgentMemory(cwd: string): Promise<ComponentMeasurement> {
   };
 }
 
-const liveOnlyMeasurements: ComponentMeasurement[] = [
-  {
-    component: "caveman",
-    status: "requires-live-a-b",
-    passed: true,
-    intendedEffect: "Reduce response verbosity without reducing answer quality.",
-    evidence: { paidModelCalls: 0 },
-    caveat: "Needs matched prompts, blinded quality scoring, and provider usage data.",
-  },
-  {
-    component: "omp-thinking",
-    status: "requires-live-a-b",
-    passed: true,
-    intendedEffect: "Use the cheapest supported reasoning level for suitable work.",
-    evidence: { configuredLevel: "minimal", paidModelCalls: 0 },
-    caveat: "Reasoning usage and quality can only be compared with controlled paid model runs.",
-  },
-  {
-    component: "archon",
-    status: "verified",
-    passed: true,
-    intendedEffect: "Provide deterministic orchestration and auditability, not token compression.",
-    evidence: { tokenSavingsClaimed: false },
-  },
-];
+export function liveOnlyMeasurements(configuredLevel?: string): ComponentMeasurement[] {
+  return [
+    {
+      component: "concise-final",
+      status: "requires-live-a-b",
+      passed: true,
+      intendedEffect: "Reduce final-response verbosity with a small neutral verdict-first rule.",
+      evidence: { paidModelCalls: 0, policyBytes: 326 },
+      caveat: "Needs matched prompts, blinded quality scoring, and provider usage data.",
+    },
+    {
+      component: "omp-thinking",
+      status: "requires-live-a-b",
+      passed: true,
+      intendedEffect: "Use the cheapest supported reasoning level for suitable work.",
+      evidence: { configuredLevel: configuredLevel ?? "provider-default", paidModelCalls: 0 },
+      caveat: "Reasoning usage and quality can only be compared with controlled paid model runs.",
+    },
+    {
+      component: "archon",
+      status: "verified",
+      passed: true,
+      intendedEffect:
+        "Provide deterministic orchestration and auditability, not token compression.",
+      evidence: { tokenSavingsClaimed: false },
+    },
+  ];
+}
 
 export async function runBenchmark(cwd: string): Promise<BenchmarkReport> {
   const measurements = await Promise.all([
@@ -211,7 +215,8 @@ export async function runBenchmark(cwd: string): Promise<BenchmarkReport> {
     measureGitNexus(cwd),
     measureAgentMemory(cwd),
   ]);
-  measurements.push(...liveOnlyMeasurements);
+  const omp = await readManagedModel("omp-native");
+  measurements.push(...liveOnlyMeasurements(omp?.thinking));
   return {
     ok: measurements.every((measurement) => measurement.passed),
     paidModelCalls: 0,

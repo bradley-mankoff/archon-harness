@@ -33,7 +33,7 @@ describe("Slack bridge", () => {
       return {
         exitCode: 0,
         response: "final answer",
-        logs: { stdout: "stdout.log", stderr: "stderr.log", omp: "omp.log" },
+        logs: { stdout: "stdout.log", stderr: "stderr.log", agent: "agent.log" },
       };
     });
 
